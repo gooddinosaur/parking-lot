@@ -21,7 +21,24 @@ class ParkingService {
       });
       
       console.log('Parking lot initialized!');
+    } else {
+      this.syncParkingLotFromDb(exists);
     }
+  }
+
+  syncParkingLotFromDb(parkingLotState) {
+    this.parkingLot.availableSpots = parkingLotState.availableSpots;
+    
+    parkingLotState.levels.forEach((dbLevel, levelIndex) => {
+      const memoryLevel = this.parkingLot.levels[levelIndex];
+      memoryLevel.availableSpots = dbLevel.availableSpots;
+      
+      dbLevel.spots.forEach((dbSpot, spotIndex) => {
+        const memorySpot = memoryLevel.spots[spotIndex];
+        memorySpot.isOccupied = dbSpot.isOccupied;
+        memorySpot.vehicleId = dbSpot.vehicleId;
+      });
+    });
   }
 
   makeSerializable(obj) {
@@ -44,6 +61,11 @@ class ParkingService {
   }
 
   async parkVehicle(licensePlate, vehicleType) {
+    const currentState = await this.db.collection('parkingLot').findOne({ _id: 'config' });
+    if (currentState) {
+      this.syncParkingLotFromDb(currentState);
+    }
+    
     const existingVehicle = await this.db.collection('vehicles').findOne({ licensePlate });
     if (existingVehicle && existingVehicle.isParked) {
       throw new Error('Vehicle is already parked');
@@ -91,6 +113,11 @@ class ParkingService {
   }
 
   async removeVehicle(licensePlate) {
+    const currentState = await this.db.collection('parkingLot').findOne({ _id: 'config' });
+    if (currentState) {
+      this.syncParkingLotFromDb(currentState);
+    }
+    
     const vehicle = await this.db.collection('vehicles').findOne({ licensePlate });
     
     if (!vehicle || !vehicle.isParked) {
