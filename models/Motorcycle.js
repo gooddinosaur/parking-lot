@@ -9,7 +9,7 @@ class Motorcycle extends Vehicle {
   }
   
   canFitInSpot(spot) {
-    return true; // Motorcycles can fit in any spot
+    return true;
   }
 }
 

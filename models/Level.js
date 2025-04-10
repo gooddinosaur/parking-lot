@@ -8,7 +8,6 @@ class Level {
     this.availableSpots = numberSpots;
     this.SPOTS_PER_ROW = 10;
     
-    // Distribution of spot types
     const largeSpots = Math.floor(numberSpots / 4);
     const bikeSpots = Math.floor(numberSpots / 4);
     const compactSpots = numberSpots - largeSpots - bikeSpots;
@@ -31,7 +30,6 @@ class Level {
     return this.availableSpots;
   }
   
-  // Try to find a place to park this vehicle. Return false if failed.
   parkVehicle(vehicle) {
     if (this.availableSpots < vehicle.getSpotsNeeded()) {
       return false;
@@ -45,7 +43,6 @@ class Level {
     return this.parkStartingAtSpot(spotNumber, vehicle);
   }
   
-  // Park a vehicle starting at the spot spotNumber, and continuing until vehicle.spotsNeeded.
   parkStartingAtSpot(spotNumber, vehicle) {
     vehicle.clearSpots();
     let success = true;
@@ -58,7 +55,6 @@ class Level {
     return success;
   }
   
-  // Find a spot to park this vehicle. Return index of spot, or -1 on failure.
   findAvailableSpots(vehicle) {
     const spotsNeeded = vehicle.getSpotsNeeded();
     let lastRow = -1;
@@ -86,7 +82,6 @@ class Level {
     return -1;
   }
   
-  // When a car was removed from the spot, increment availableSpots
   spotFreed() {
     this.availableSpots++;
   }

@@ -2,7 +2,6 @@ import Car from './Car';
 import Motorcycle from './Motorcycle';
 import Bus from './Bus';
 
-// Factory class to create different types of vehicles
 class VehicleFactory {
   static createVehicle(type, licensePlate) {
     switch (type) {

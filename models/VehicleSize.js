@@ -1,4 +1,3 @@
-// VehicleSize enum
 const VehicleSize = {
     Motorcycle: 'Motorcycle',
     Compact: 'Compact',

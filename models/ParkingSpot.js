@@ -12,13 +12,11 @@ class ParkingSpot {
     isAvailable() {
       return !this.isOccupied;
     }
-    
-    // Checks if the spot is big enough for the vehicle (and is available)
+  
     canFitVehicle(vehicle) {
       return this.isAvailable() && vehicle.canFitInSpot(this);
     }
     
-    // Park vehicle in this spot
     park(vehicle) {
       if (!this.canFitVehicle(vehicle)) {
         return false;
@@ -43,7 +41,6 @@ class ParkingSpot {
       return this.size;
     }
     
-    // Remove vehicle from spot, and notify level that a new spot is available
     removeVehicle() {
       this.level.spotFreed();
       this.vehicle = null;
