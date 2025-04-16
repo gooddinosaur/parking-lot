@@ -1,28 +1,38 @@
 import ParkingLot from './ParkingLot';
 import VehicleFactory from './VehicleFactory';
+import Database from '../lib/database';
+import VehicleModel from './schemas/VehicleSchema';
+import ParkingLotModel from './schemas/ParkingLotSchema';
 
 class ParkingService {
-  constructor(db) {
-    this.db = db;
+  constructor() {
     this.parkingLot = new ParkingLot();
+    this.database = Database.getInstance();
   }
 
   async setupParkingLot() {
-    const parkingLotCollection = this.db.collection('parkingLot');
-    const exists = await parkingLotCollection.findOne({ _id: 'config' });
-    
-    if (!exists) {
-      const status = this.parkingLot.getStatus();
-      const serializableStatus = this.makeSerializable(status);
+    try {
+      await this.database.connect();
       
-      await parkingLotCollection.insertOne({
-        _id: 'config',
-        ...serializableStatus
-      });
+      // Check if parking lot config exists
+      const existingConfig = await ParkingLotModel.findById('config');
       
-      console.log('Parking lot initialized!');
-    } else {
-      this.syncParkingLotFromDb(exists);
+      if (!existingConfig) {
+        const status = this.parkingLot.getStatus();
+        const serializableStatus = this.makeSerializable(status);
+        
+        await ParkingLotModel.create({
+          _id: 'config',
+          ...serializableStatus
+        });
+        
+        console.log('Parking lot initialized!');
+      } else {
+        this.syncParkingLotFromDb(existingConfig);
+      }
+    } catch (error) {
+      console.error('Error setting up parking lot:', error);
+      throw error;
     }
   }
 
@@ -61,105 +71,139 @@ class ParkingService {
   }
 
   async parkVehicle(licensePlate, vehicleType) {
-    const currentState = await this.db.collection('parkingLot').findOne({ _id: 'config' });
-    if (currentState) {
-      this.syncParkingLotFromDb(currentState);
-    }
-    
-    const existingVehicle = await this.db.collection('vehicles').findOne({ licensePlate });
-    if (existingVehicle && existingVehicle.isParked) {
-      throw new Error('Vehicle is already parked');
-    }
-    
-    const vehicle = VehicleFactory.createVehicle(vehicleType, licensePlate);
-    
-    if (this.parkingLot.parkVehicle(vehicle)) {
-      const updatedStatus = this.makeSerializable(this.parkingLot.getStatus());
+    try {
+      await this.database.connect();
       
-      await this.db.collection('parkingLot').updateOne(
-        { _id: 'config' },
-        { $set: updatedStatus }
-      );
+      // Get current parking lot status
+      const currentState = await ParkingLotModel.findById('config');
+      if (currentState) {
+        this.syncParkingLotFromDb(currentState);
+      }
       
-      const levelNum = vehicle.parkingSpots[0]?.level.floorNumber;
-      const spotNumbers = vehicle.parkingSpots.map(spot => spot.spotNumber);
+      // Check if vehicle is already parked
+      const existingVehicle = await VehicleModel.findOne({ licensePlate });
+      if (existingVehicle && existingVehicle.isParked) {
+        throw new Error('Vehicle is already parked');
+      }
       
-      const parkedVehicle = {
-        licensePlate,
-        vehicleType,
-        size: vehicle.size,
-        spotsNeeded: vehicle.spotsNeeded,
-        isParked: true,
-        level: levelNum,
-        spots: spotNumbers,
-        parkedAt: new Date()
-      };
+      const vehicle = VehicleFactory.createVehicle(vehicleType, licensePlate);
       
-      await this.db.collection('vehicles').updateOne(
-        { licensePlate },
-        { $set: parkedVehicle },
-        { upsert: true }
-      );
-      
-      return {
-        success: true,
-        message: `Vehicle parked successfully on level ${levelNum}`,
-        level: levelNum,
-        spots: spotNumbers
-      };
-    } else {
-      throw new Error('No available spots for this vehicle');
+      if (this.parkingLot.parkVehicle(vehicle)) {
+        const updatedStatus = this.makeSerializable(this.parkingLot.getStatus());
+        
+        // Update parking lot status
+        await ParkingLotModel.findByIdAndUpdate('config', updatedStatus);
+        
+        const levelNum = vehicle.parkingSpots[0]?.level.floorNumber;
+        const spotNumbers = vehicle.parkingSpots.map(spot => spot.spotNumber);
+        
+        // Create or update vehicle record
+        await VehicleModel.findOneAndUpdate(
+          { licensePlate },
+          {
+            licensePlate,
+            vehicleType,
+            size: vehicle.size,
+            spotsNeeded: vehicle.spotsNeeded,
+            isParked: true,
+            level: levelNum,
+            spots: spotNumbers,
+            parkedAt: new Date()
+          },
+          { upsert: true, new: true }
+        );
+        
+        return {
+          success: true,
+          message: `Vehicle parked successfully on level ${levelNum}`,
+          level: levelNum,
+          spots: spotNumbers
+        };
+      } else {
+        throw new Error('No available spots for this vehicle');
+      }
+    } catch (error) {
+      console.error('Error parking vehicle:', error);
+      throw error;
     }
   }
 
   async removeVehicle(licensePlate) {
-    const currentState = await this.db.collection('parkingLot').findOne({ _id: 'config' });
-    if (currentState) {
-      this.syncParkingLotFromDb(currentState);
+    try {
+      await this.database.connect();
+      
+      // Get current parking lot status
+      const currentState = await ParkingLotModel.findById('config');
+      if (currentState) {
+        this.syncParkingLotFromDb(currentState);
+      }
+      
+      // Check if vehicle exists and is parked
+      const vehicle = await VehicleModel.findOne({ licensePlate });
+      
+      if (!vehicle || !vehicle.isParked) {
+        throw new Error('Vehicle not found or not parked');
+      }
+      
+      const parkingLot = await ParkingLotModel.findById('config');
+      const levels = parkingLot.levels;
+      const level = vehicle.level;
+      
+      // Update spots to be available
+      for (const spotNumber of vehicle.spots) {
+        levels[level].spots[spotNumber].isOccupied = false;
+        levels[level].spots[spotNumber].vehicleId = null;
+      }
+      
+      // Update available spots count
+      levels[level].availableSpots += vehicle.spotsNeeded;
+      parkingLot.availableSpots += vehicle.spotsNeeded;
+      
+      // Update parking lot in database
+      await ParkingLotModel.findByIdAndUpdate('config', {
+        levels: levels,
+        availableSpots: parkingLot.availableSpots
+      });
+      
+      // Update vehicle record
+      await VehicleModel.findOneAndUpdate(
+        { licensePlate },
+        {
+          isParked: false,
+          level: null,
+          spots: [],
+          exitedAt: new Date()
+        }
+      );
+      
+      return {
+        success: true,
+        message: `Vehicle removed successfully`
+      };
+    } catch (error) {
+      console.error('Error removing vehicle:', error);
+      throw error;
     }
-    
-    const vehicle = await this.db.collection('vehicles').findOne({ licensePlate });
-    
-    if (!vehicle || !vehicle.isParked) {
-      throw new Error('Vehicle not found or not parked');
-    }
-    
-    const parkingLot = await this.db.collection('parkingLot').findOne({ _id: 'config' });
-    const levels = parkingLot.levels;
-    const level = vehicle.level;
-    
-    for (const spotNumber of vehicle.spots) {
-      levels[level].spots[spotNumber].isOccupied = false;
-      levels[level].spots[spotNumber].vehicleId = null;
-    }
-    
-    levels[level].availableSpots += vehicle.spotsNeeded;
-    parkingLot.availableSpots += vehicle.spotsNeeded;
-    
-    await this.db.collection('parkingLot').updateOne(
-      { _id: 'config' },
-      { $set: { levels: levels, availableSpots: parkingLot.availableSpots } }
-    );
-    
-    await this.db.collection('vehicles').updateOne(
-      { licensePlate },
-      { $set: { isParked: false, level: null, spots: [], exitedAt: new Date() } }
-    );
-    
-    return {
-      success: true,
-      message: `Vehicle removed successfully`
-    };
   }
 
   async getParkedVehicles() {
-    return this.db.collection('vehicles')
-      .find({ isParked: true })
-      .toArray();
+    try {
+      await this.database.connect();
+      return VehicleModel.find({ isParked: true });
+    } catch (error) {
+      console.error('Error fetching parked vehicles:', error);
+      throw error;
+    }
   }
 
   async getParkingLotStatus() {
-    return this.db.collection('parkingLot').findOne({ _id: 'config' });
+    try {
+      await this.database.connect();
+      return ParkingLotModel.findById('config');
+    } catch (error) {
+      console.error('Error fetching parking lot status:', error);
+      throw error;
+    }
   }
 }
 

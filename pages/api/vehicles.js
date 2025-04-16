@@ -1,12 +1,12 @@
-import mongoose from 'mongoose';
-import dbConnect from '../../lib/mongodb';
+import Database from '../../lib/database';
 import ParkingService from '../../models/ParkingService';
 
 export default async function handler(req, res) {
   try {
-    await dbConnect(); // Connect to the database using Mongoose
-
-    const parkingService = new ParkingService(mongoose.connection.db); // Use the Mongoose connection
+    const database = Database.getInstance();
+    await database.connect();
+    
+    const parkingService = new ParkingService();
 
     if (req.method === 'GET') {
       const vehicles = await parkingService.getParkedVehicles();
@@ -15,6 +15,7 @@ export default async function handler(req, res) {
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
+    console.error('API error:', error);
     return res.status(500).json({ error: 'Server error: ' + error.message });
   }
 }
